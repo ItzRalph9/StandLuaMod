@@ -1,0 +1,1 @@
+{"casinoChips":false,"freezeClock":false,"infiniteAmmo":false,"speedometer":true,"spawnMaxed":true}

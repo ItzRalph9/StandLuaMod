@@ -1,0 +1,1 @@
+{"posOffset":{"y":-0.03,"x":0},"bgColor":{"g":0,"r":0,"a":0.68627452850342,"b":0},"ptrWidth":0.04,"ptrColor":{"g":1,"b":0,"a":1,"r":0},"speedColor":{"g":1,"b":0,"a":1,"r":0},"speedometerMax":210,"mainColor":{"g":1,"b":0,"a":1,"r":0},"scale":-0.012,"speedometerMin":-30,"maxSpeedometerSpeed":160,"dotColor":{"g":1,"b":0,"a":1,"r":0}}

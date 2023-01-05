@@ -5,11 +5,10 @@ local json = require("json")
 
 local MenuRoot = menu.my_root()
 
+
+
 -- TODO:
 -- if one or more variables in the file are nil, then it should ignore them and not assign the nil value to the global variable in this script 
-
--- Interesting natives
--- NETWORK::NETWORK_SEND_TEXT_MESSAGE
 
 -- All variables that need to be saves
 -- teleport
@@ -54,7 +53,7 @@ function ReadData(fileName)
     if not filesystem.exists(dir) then return {} end
 
     local f = io.open(dir, "r")
-    local data = f:read()
+    local data = f:read() -- Maybe you should put ---- "*a" ---- at the end to read the whole file
 
     data = json.decode(data)
 
@@ -359,22 +358,82 @@ do
             end
         end
 
-        --[[ Spawn in vehicle ]]
-        menu.text_input(Vehicles, "Spawn vehicle", {"spawn_vehicle_mine"}, "", function(text)
-            local HashVehicle = MISC.GET_HASH_KEY(text)
+        function CreateVehicle(name)
+            local HashVehicle = MISC.GET_HASH_KEY(name)
             if RequestEntityModel(HashVehicle) then
                 local direction = ENTITY.GET_ENTITY_HEADING(players.user_ped())
                 local PlayerCoords = players.get_position(players.user())
                 SpawnedVehicle = entities.create_vehicle(HashVehicle, PlayerCoords, direction, false, false, true)
             end
-
+    
             if toggle_spawn_maxed then
                 MaxOutVehicle(SpawnedVehicle)
             end
             
             local playerPed = players.user_ped()
             PED.SET_PED_INTO_VEHICLE(playerPed, SpawnedVehicle, -1)
+        end
+
+        --[[ Spawn in vehicle ]]
+        menu.text_input(Vehicles, "Spawn vehicle", {"spawn_vehicle_mine"}, "", function(text)
+            CreateVehicle(text)
         end)
+
+        local vehicleData = util.get_vehicles()
+        -- local names = {}
+        for k,v in vehicleData do
+            -- table.insert(names, v.name)
+            vehicleData[k] = v.name
+        end
+
+        -- [[ Spawn vehicle list ]]
+        menu.list_action(Vehicles, "Spawn vehicle list", {}, "", vehicleData, function(index)
+            CreateVehicle(vehicleData[index])
+        end)
+
+        -- [[ Nearby vehicles list]]
+        
+        -- function GetNearbyVehicleData()
+        --     local data = {}
+        --     local nearbyVehicles = entities.get_all_vehicles_as_handles()
+        --     for k,ent in nearbyVehicles do
+        --         local hash = ENTITY.GET_ENTITY_MODEL(ent)
+        --         local health = ENTITY.GET_ENTITY_HEALTH(ent)
+        --         local distance = string.format("%.1f", v3.distance(ENTITY.GET_ENTITY_COORDS(ent, false), players.get_position(players.user())))
+        --         data[ent] = { ent = ent, text = "Distance: "..distance.." Health: "..health.." Hash: "..hash }
+        --     end
+        --     return data
+        -- end
+
+        -- local nearbyVehicles = {} --GetNearbyVehicleData()
+        -- local nearbyVehiclesList = menu.list(Vehicles, "Nearby vehicles", {"nearby_vehicles_list"}, "")
+
+        -- local command = menu.ref_by_command_name('nearbyvehicleslist')
+        -- menu.on_focus(command, function()
+        --     local time = util.current_time_millis()
+        --     util.create_tick_handler(function()
+        --         if util.current_time_millis() - time > 1000 then
+        --             time = util.current_time_millis()
+        --             local newNearbyVehicles = GetNearbyVehicleData()
+        --             for oldEnt,data in nearbyVehicles do
+        --                 if newNearbyVehicles[oldEnt] == nil then
+        --                     --menu.delete(oldEnt)
+        --                 else
+        --                     local itemCommand = menu.ref_by_command_name(oldEnt)
+        --                     menu.set_menu_name(itemCommand, data.text)
+        --                 end
+        --             end
+
+        --             for newEnt, data in newNearbyVehicles do
+        --                 if nearbyVehicles[newEnt] == nil then
+        --                     menu.list(nearbyVehiclesList, data.text, {newEnt}, "")
+        --                 end
+        --             end
+        --             nearbyVehicles = newNearbyVehicles
+        --         end
+        --         util.yield()
+        --     end)
+        -- end)
 
         --[[ Upgrade vehicle ]]
         menu.toggle(Vehicles, "Spawn vehicle maxed out", {}, "Spawns the vehicle fully upgraded", function(state)
@@ -633,9 +692,9 @@ do
         -- [[ Speedometer ]]
         local time = 0
         local distance = 0
-        local speedometerToggle = menu.toggle_loop(Vehicles, "Speedometer", {}, "Analoge speedometer, only visible when inside a vehicle", function()
+        local speedometerToggle = menu.toggle_loop(Vehicles, "Speedometer", {"speedometer"}, "Analoge speedometer, only visible when inside a vehicle", function()
             time += MISC.GET_FRAME_TIME()
-
+            
             toggle_speedometer = true
             local aspectRatio = 16/9
             local pi = 3.1415926535
@@ -686,12 +745,10 @@ do
                 local distanceText = tonumber(string.format("%.1f", distance))
                 directx.draw_text(center.x, center.y + 0.1, distanceText, ALIGN_CENTRE, 0.9, sm_speedColor)
             end
-        end, function() toggle_speedometer = false end)
+        end,
+        function() toggle_speedometer = false end)
 
         if toggle_speedometer then menu.trigger_command(speedometerToggle) end
-
-        
-
         local toggle_rpmGauge = false
         local textureIdRpmGauge = directx.create_texture(filesystem.resources_dir().."rpm_gauge2.png")
         -- [[ Rpm gauge ]]
@@ -841,26 +898,107 @@ do
             end
         end)
 
-        menu.toggle_loop(World, "Get rpm", {}, "",  function()
-            local vehicle = entities.get_user_vehicle_as_pointer()
-            local rpm = entities.get_rpm(vehicle)
-            directx.draw_text(0.9, 0.5, rpm, ALIGN_CENTRE, 0.9, sm_speedColor)
-            local currentGear = entities.get_current_gear(vehicle)
-            directx.draw_text(0.9, 0.45, currentGear, ALIGN_CENTRE, 0.9, sm_speedColor)
-        end)
+        local killFeed <const> = menu.list(World, "Kill feed", {}, "Keep track of kills all and deaths")
+        do
+            local allDeathEvents = {}
+            local clearFeedConfirmed = false
+            menu.action(killFeed, "Clear kill feed", {}, "", function()
+                if not clearFeedConfirmed then
+                    util.toast("Double click to clear feed")
+                    clearFeedConfirmed = true
 
-        -- [[ Set clock time ]]
-        menu.slider(World, "Set time of day", {"set_clock_time"}, "Only works locally", 0, 23, 12, 1, function(hours)
-            local command = menu.ref_by_path('World>Atmosphere>Clock>Time', 37)
-            local args = tostring(hours)..", 0, 0"
-            menu.trigger_command(command, args)
-        end)
+                    local time = util.current_time_millis()
+                    util.create_tick_handler(function()
+                        if util.current_time_millis() - time > 1000 then
+                            clearFeedConfirmed = false
+                            time = util.current_time_millis()
+                        end
+                    end)
+                    return
+                end
+                
+                util.toast("Kill feed cleared")
+                for i, k in pairs(allDeathEvents) do
+                    menu.delete(k)
+                end
+                allDeathEvents = {}
+                clearFeedConfirmed = false
+            end)
 
-        -- [[ Freeze clock time ]]
-        menu.toggle(World, "Pause clock", {"pause_clock"}, "Only works locally", function(state)
-            CLOCK.PAUSE_CLOCK(state)
-            toggle_freeze_clock = state
-        end, toggle_freeze_clock)
+            -- Checks if your player died and if so, adds lines
+            -- above and beneath the event where you died
+            function dieEvent(commandrefKillFeed, pid, allDeathEvents, eventMenuName, eventMenuText)
+                if pid == players.user() then
+                    local commandrefDivider = menu.divider(commandrefKillFeed, "---------------------------------------------------")
+                    table.insert(allDeathEvents, commandrefDivider)
+                end
+
+                local commandrefEvent = menu.readonly(commandrefKillFeed, eventMenuName, eventMenuText)
+
+                if pid == players.user() then
+                    local commandrefDivider = menu.divider(commandrefKillFeed, "---------------------------------------------------")
+                    table.insert(allDeathEvents, commandrefDivider)
+                end
+
+                table.insert(allDeathEvents, commandrefEvent)
+            end
+            
+            -- [[ Kill feed ]]
+            menu.toggle(killFeed, "Kill feed", {}, "", function()
+                local players = players.list()
+                local deadPlayers = {}
+
+                util.create_tick_handler(function()
+                    for i, id in pairs(players) do
+                        local isDead = PLAYER.IS_PLAYER_DEAD(id)
+                        local killerName = ""
+                        local victimName = ""
+
+                        if isDead == true then
+                            local victimPed = PLAYER.GET_PLAYER_PED(id)
+                            local killerEnt = PED.GET_PED_SOURCE_OF_DEATH(victimPed)
+                            local killerPid = NETWORK.NETWORK_GET_PLAYER_INDEX_FROM_PED(killerEnt)
+
+                            killerName = NETWORK.NETWORK_PLAYER_GET_NAME(killerPid)
+                            victimName = NETWORK.NETWORK_PLAYER_GET_NAME(id)
+
+                            if not InTable(deadPlayers, id) then
+                                local commandref
+                                if killerName == victimName or killerName == "**Invalid**" then
+                                    dieEvent(killFeed, id, allDeathEvents, victimName.." died", tostring(GetCurrentTime()))
+                                elseif killerName ~= nil and killerName ~= "" then
+                                    dieEvent(killFeed, id, allDeathEvents, killerName.." killed "..victimName, tostring(GetCurrentTime()))
+                                end
+                            end
+                            table.insert(deadPlayers, id)
+                        end
+                    end
+
+                    for i, id in pairs(deadPlayers) do
+                        local isDead = PLAYER.IS_PLAYER_DEAD(id)
+                        if isDead == false then
+                            table.remove(deadPlayers, i)
+                        end
+                    end
+                end)
+            end)
+        end
+
+        local Time <const> = menu.list(World, "Time", {}, "")
+        do
+            -- [[ Set clock time ]]
+            menu.slider(Time, "Set time of day", {"set_clock_time"}, "Only works locally", 0, 23, 12, 1, function(hours)
+                local command = menu.ref_by_path('World>Atmosphere>Clock>Time', 37)
+                local args = tostring(hours)..", 0, 0"
+                menu.trigger_command(command, args)
+            end)
+
+            -- [[ Freeze clock time ]]
+            menu.toggle(Time, "Pause clock", {"pause_clock"}, "Only works locally", function(state)
+                CLOCK.PAUSE_CLOCK(state)
+                toggle_freeze_clock = state
+            end, toggle_freeze_clock)
+        end
 
         -- [[ Set weather ]]
         local WeatherTypes = {"CLEAR","EXTRASUNNY","CLOUDS","OVERCAST","RAIN","CLEARING","THUNDER","SMOG","FOGGY","XMAS","SNOW","SNOWLIGHT","BLIZZARD","HALLOWEEN","NEUTRAL"}
@@ -881,32 +1019,32 @@ do
     local SpeedometerMenu <const> = menu.list(Settings, "Speedometer", {}, "Speedometer")
     do
         -- [[ Speedometer main color ]]
-        menu.colour(SpeedometerMenu, "main color", {"speedometer_main_col"}, "", sm_mainColor, true, function(color)
+        menu.colour(SpeedometerMenu, "main color", {}, "", sm_mainColor, true, function(color)
             sm_mainColor = color
         end)
         
         -- [[ Speedometer background color]]
-        menu.colour(SpeedometerMenu, "background color", {"speedometer_bg_col"}, "", sm_bgColor, true, function(color)
+        menu.colour(SpeedometerMenu, "background color", {}, "", sm_bgColor, true, function(color)
             sm_bgColor = color
         end)
         
         -- [[ Speedometer pointer color]]
-        menu.colour(SpeedometerMenu, "pointer color", {"speedometer_ptr_col"}, "", sm_ptrColor, true, function(color)
+        menu.colour(SpeedometerMenu, "pointer color", {}, "", sm_ptrColor, true, function(color)
             sm_ptrColor = color
         end)
         
         -- [[ Speedometer pointer width ]]
-        menu.slider(SpeedometerMenu, "Pointer width", {"speedometer_ptr_width"}, "", 0, 50, sm_ptrWidth * 1000, 1, function(value)
+        menu.slider(SpeedometerMenu, "Pointer width", {}, "", 0, 50, sm_ptrWidth * 1000, 1, function(value)
             sm_ptrWidth = value / 1000
         end)
         
         -- [[ Speedometer dot color]]
-        menu.colour(SpeedometerMenu, "dot color", {"speedometer_dot_col"}, "", sm_dotColor, true, function(color)
+        menu.colour(SpeedometerMenu, "dot color", {}, "", sm_dotColor, true, function(color)
             sm_dotColor = color
         end)
         
         -- [[ Speedometer speed color]]
-        menu.colour(SpeedometerMenu, "speed color", {"speedometer_speed_col"}, "", sm_speedColor, true, function(color)
+        menu.colour(SpeedometerMenu, "speed color", {}, "", sm_speedColor, true, function(color)
             sm_speedColor = color
         end)
 
@@ -990,5 +1128,127 @@ do
     util.on_stop(function()
         local data = {infiniteAmmo=toggle_infinite_ammo,spawnMaxed=toggle_spawn_maxed,freezeClock=toggle_freeze_clock,speedometer=toggle_speedometer,casinoChips=toggle_casino_chips}
         SaveData(data, "toggleData.txt")
+    end)
+end
+
+
+
+function InTable(table, val)
+    for i, k in pairs(table) do
+        if k == val then
+            return true
+        end
+    end
+    return false
+end
+
+function GetCurrentTime()
+    local time = util.current_unix_time_seconds()
+    return os.date("%H:%M:%S", time)
+end
+
+local function KickPlayer(pid, method)
+    local path = menu.player_root(pid)
+    local command = menu.ref_by_rel_path(path, "Kick>"..method)
+    menu.trigger_command(command)
+end
+
+local function player(pid)
+    menu.divider(menu.player_root(pid), "Ralph Script")
+    local PlayerOptions <const> = menu.list(menu.player_root(pid), "All", {}, "")
+    do
+        -- [[ Kick player ]]
+        menu.divider(PlayerOptions, "Kick player")
+
+        menu.action(PlayerOptions, "Smart", {}, "", function()
+            KickPlayer(pid, "Smart")
+        end)
+
+        menu.action(PlayerOptions, "Disconnect", {}, "", function()
+            KickPlayer(pid, "Breakup")
+        end)
+
+        menu.action(PlayerOptions, "Ban", {}, "", function()
+            KickPlayer(pid, "Ban")
+        end)
+
+        -- [[ Player info ]]
+        menu.divider(PlayerOptions, "Player info")
+
+        local level = tostring(players.get_rank(pid))
+        menu.readonly(PlayerOptions, "Rank", level)
+
+        local money = tostring(players.get_money(pid))
+        money = FormatMoney(money, false)
+        money = "$"..money
+        menu.readonly(PlayerOptions, "Money", money)
+
+        local isModder = tostring(players.is_marked_as_modder(pid))
+        menu.readonly(PlayerOptions, "Modder", isModder)
+
+        menu.toggle_loop(PlayerOptions, "Set max armour", {}, "", function()
+            MISC.SET_EXPLOSIVE_AMMO_THIS_FRAME(pid)
+        end)
+    end
+
+end
+
+players.on_join(player)
+players.dispatch_on_join()
+
+
+
+function ReadData(fileName)
+    local dir = filesystem.stand_dir()
+    dir = dir.."RalphScript\\"..fileName
+    if not filesystem.exists(dir) then return {} end
+
+    local f = io.open(dir, "r")
+    local data = f:read()
+
+    data = json.decode(data)
+
+    f:close()
+    return data
+end
+
+
+local Miscellaneous <const> = menu.list(MenuRoot, "Miscellaneous", {}, "Miscellaneous")
+do
+    local allCommandrefs = {}
+    menu.action(Miscellaneous, "View all hotkeys", {}, "", function()
+        local dir = filesystem.stand_dir()
+        dir = dir.."Hotkeys.txt"
+
+        local f = io.open(dir, "r")
+        local data = f:read "*a"
+        f:close()   
+
+        -- Manipulate data
+        local Lines = string.split(data, "\n")
+        table.remove(Lines, 1)
+        data = table.concat(Lines, "\n")
+        data = string.split(data, "\n")
+
+        local hotkeys = {}
+        for i, k in pairs(data) do
+            if string.find(k, ":") then
+                k = k:gsub('%	', '')
+                local hotkey = string.split(k, ": ")
+                table.insert(hotkeys, hotkey)
+            end
+        end
+
+        -- Remove all currently displayed hotkeys (if there are any)
+        for i, commandref in pairs(allCommandrefs) do
+            menu.delete(commandref)
+            allCommandrefs = {}
+        end
+
+        -- Display all the hotkeys (I tried to sort them by hotkey but I gave ups)
+        for k,v in pairs(hotkeys) do
+            local commandref = menu.readonly(Miscellaneous, v[1], v[2])
+            table.insert(allCommandrefs, commandref)
+        end
     end)
 end
